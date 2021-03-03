@@ -1,7 +1,7 @@
 package me.jungho.demoinfleanrestapi.events;
 
 import lombok.*;
-import org.springframework.util.StringUtils;
+import me.jungho.demoinfleanrestapi.accounts.Account;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
@@ -29,6 +29,9 @@ public class Event {
     private Boolean free;
     @Enumerated(EnumType.STRING)
     private EventStatus eventStatus = EventStatus.DRAFT;
+
+    @ManyToOne
+    private Account manager;
 
     public void update(){
         // Update free

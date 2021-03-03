@@ -1,17 +1,21 @@
 package me.jungho.demoinfleanrestapi.events;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import me.jungho.demoinfleanrestapi.common.BaseControllerTest;
 import me.jungho.demoinfleanrestapi.common.CustomTestDescription;
 import me.jungho.demoinfleanrestapi.common.RestDocsConfiguration;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
 import org.mockito.Mockito;
+import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Description;
 import org.springframework.context.annotation.Import;
 import org.springframework.hateoas.MediaTypes;
 import org.springframework.http.HttpHeaders;
@@ -19,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import javax.management.modelmbean.ModelMBean;
 import java.time.LocalDateTime;
 import java.util.regex.Matcher;
 import java.util.stream.IntStream;
@@ -29,27 +34,17 @@ import static org.springframework.restdocs.hypermedia.HypermediaDocumentation.li
 import static org.springframework.restdocs.hypermedia.HypermediaDocumentation.links;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
 import static org.springframework.restdocs.payload.PayloadDocumentation.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 //@WebMvcTest
-@SpringBootTest
-@AutoConfigureMockMvc
-@AutoConfigureRestDocs
-@Import({RestDocsConfiguration.class})
-@ActiveProfiles("test")
-public class EventControllerTest {
+
+public class EventControllerTest extends BaseControllerTest {
+
 
     @Autowired
-    MockMvc mockMvc;
-
-    @Autowired
-    ObjectMapper objectMapper;
-
-    @Autowired
-    EventRepository eventRepository;
+    ModelMapper modelMapper;
 
     @Test
     @CustomTestDescription("정상적으로 이벤트를 생성하는 테스트")
@@ -134,10 +129,7 @@ public class EventControllerTest {
                                 fieldWithPath("_links.query-events.href").description("link to query event list"),
                                 fieldWithPath("_links.update-event.href").description("link to update existing event"),
                                 fieldWithPath("_links.profile.href").description("link to profile")
-
                         )
-
-
                 ))
         ;
     }
@@ -219,13 +211,12 @@ public class EventControllerTest {
         ;
     }
 
-
     @Test
     @CustomTestDescription("30개의 이벤트를 10개씩 두번째 페이지 조회하기")
     void queryEvents() throws Exception{
         //given
         IntStream.range(0, 30).forEach( i -> {
-            this.generateEvent(i);
+            generateEvent(i);
         });
         //when
         mockMvc.perform(get("/api/events")
@@ -250,7 +241,18 @@ public class EventControllerTest {
     private Event generateEvent(int index) {
         Event event = Event.builder()
                 .name("event" + index)
-                .description("test event")
+                .description("REST API Development with Spring")
+                .beginEnrollmentDateTime(LocalDateTime.of(2018, 11, 23, 14, 21))
+                .closeEnrollmentDateTime(LocalDateTime.of(2018, 11, 24, 14, 21))
+                .beginEventDateTime(LocalDateTime.of(2018, 11, 25, 14, 21))
+                .endEventDateTime(LocalDateTime.of(2018, 11, 26, 14, 21))
+                .basePrice(100)
+                .maxPrice(200)
+                .limitOfEnrollment(100)
+                .location("강남역 D2 스타텁 팩토리")
+                .free(false)
+                .offline(true)
+                .eventStatus(EventStatus.DRAFT)
                 .build();
 
         return eventRepository.save(event);
@@ -286,21 +288,100 @@ public class EventControllerTest {
     @CustomTestDescription("없는 이벤트 조회했을 때 404 응답받기")
     void getEvent404() throws Exception{
 
+        // When & Then
+        this.mockMvc.perform(get("/api/events/11883"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @CustomTestDescription("이벤트를 정상적으로 수정하기")
+    void updateEvent() throws Exception {
+
+        // given
+        Event event = generateEvent(200);
+        EventDto eventDto = modelMapper.map(event, EventDto.class);
+
+        String eventName = "Updated Event";
+        eventDto.setName(eventName);
 
         // when & then
-        mockMvc.perform(get("/api/events/123123")
-                .param("id", "1")
-        )
+        this.mockMvc.perform(put("/api/events/{id}", event.getId())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(eventDto)))
                 .andDo(print())
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("name").exists())
-                .andExpect(jsonPath("id").exists())
+                .andExpect(jsonPath("name").value(eventName))
                 .andExpect(jsonPath("_links.self").exists())
-                .andExpect(jsonPath("_links.profile").exists())
+        ;
+    }
+
+    @Test
+    @CustomTestDescription("입력 값이 잘못된 경우에 이벤트 수정 실패")
+    void updateEvent400_Wrong() throws Exception {
+
+        // given
+        Event event = generateEvent(200);
+
+        event.setBasePrice(20);
+        event.setMaxPrice(10);
+
+        EventDto eventDto = modelMapper.map(event, EventDto.class);
+
+        String eventName = "Updated Event";
+        eventDto.setName(eventName);
+
+        // when & then
+        this.mockMvc.perform(put("/api/events/{id}", event.getId())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(eventDto)))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+        ;
+    }
+
+    @Test
+    @CustomTestDescription("입력 값이 비어있는 경우에 이벤트 수정 실패")
+    void updateEvent400_Empty() throws Exception {
+
+        // given
+        Event event = generateEvent(200);
+        EventDto eventDto = new EventDto();
+
+        String eventName = "Updated Event";
+        eventDto.setName(eventName);
+
+        // when & then
+        this.mockMvc.perform(put("/api/events/{id}", event.getId())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(eventDto)))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
         ;
     }
 
 
+    @Test
+    @CustomTestDescription("존재하지 않는 이벤트 수정 실패")
+    void updateEvent404() throws Exception {
+
+        // given
+        Event event = generateEvent(200);
+        EventDto eventDto = modelMapper.map(event, EventDto.class);
+
+        event.setBasePrice(20);
+        event.setMaxPrice(10);
+
+        String eventName = "Updated Event";
+        eventDto.setName(eventName);
+
+        // when & then
+        this.mockMvc.perform(put("/api/events/1231231", event.getId())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(eventDto)))
+                .andDo(print())
+                .andExpect(status().isNotFound())
+        ;
+    }
 
 
 }
